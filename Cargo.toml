@@ -1,0 +1,15 @@
+[package]
+name = "omnitrackr-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.1", features = ["tracing", "macros"] }
+piper-rs = { git = "https://github.com/niconicoj/piper-rs.git" }
+serde = { version = "1.0.218", features = ["derive"] }
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", features = ["full"] }
+tower-http = { version = "0.6.2", features = ["trace"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+validator = { version = "0.20.0", features = ["derive"] }
