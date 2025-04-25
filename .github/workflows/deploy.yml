@@ -20,13 +20,24 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist-artifact
-          path: dist
-
       - id: auth
         uses: google-github-actions/auth@v2
         with:
           project_id: niconico-certbot
           workload_identity_provider: projects/118991447074/locations/global/workloadIdentityPools/github/providers/omnitrackr-api
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Docker auth
+        run: |-
+          gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
+
+      - name: 'Build and push container
+        run: |-
+         docker build -t "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.APP }}/${{ env.APP }}:latest" .
+         docker push "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.APP }}/${{ env.APP }}:latest"
+
+
