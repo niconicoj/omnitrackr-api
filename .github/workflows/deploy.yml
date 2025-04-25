@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+env:
+  PROJECT_ID: niconico-certbot
+  GAR_LOCATION: europe-west9
+  APP: omnitrackr-api
+
 jobs:
   build:
     name: Build
@@ -27,7 +32,7 @@ jobs:
           workload_identity_provider: projects/118991447074/locations/global/workloadIdentityPools/github/providers/omnitrackr-api
 
       - id: setup-gcloud
-        uses: google-github-actions/setup-gcloud@v1
+        uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
 
