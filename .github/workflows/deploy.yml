@@ -11,10 +11,6 @@ env:
   APP: omnitrackr-api
 
 jobs:
-  build:
-    name: Build
-    uses: ./.github/workflows/build.yml
-
   deploy:
     name: Deploy
     needs: build
@@ -43,9 +39,15 @@ jobs:
         run: |-
           gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
 
-      - id: package
+      - id: publish
         run: |-
          docker build -t "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.APP }}/${{ env.APP }}:latest" .
          docker push "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.APP }}/${{ env.APP }}:latest"
+
+      - id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: omnitrackr-api
+          image: europe-west9-docker.pkg.dev/niconico-certbot/omnitrackr-api/omnitrackr-api:latest
 
 
