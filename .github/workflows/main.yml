@@ -47,6 +47,6 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: omnitrackr-api
+          region: europe-west9
           image: europe-west9-docker.pkg.dev/niconico-certbot/omnitrackr-api/omnitrackr-api:latest
-
 
