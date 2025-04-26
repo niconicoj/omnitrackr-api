@@ -32,7 +32,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           project_id: niconico-certbot
-          workload_identity_provider: projects/118991447074/locations/global/workloadIdentityPools/github/providers/omnitrackr-api-2
+          workload_identity_provider: projects/118991447074/locations/global/workloadIdentityPools/github/providers/omnitrackr-api-3
 
       - id: setup-gcloud
         uses: google-github-actions/setup-gcloud@v2
