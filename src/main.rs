@@ -82,3 +82,67 @@ async fn synthesize(
     drop(permit);
     bytes
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    fn build_app() -> Router {
+        let state = Arc::new(AppState::init());
+        Router::new()
+            .route("/synthesize", post(synthesize))
+            .with_state(state)
+    }
+
+    fn json_request(body: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/synthesize")
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn synthesize_valid_text_returns_wav_bytes() {
+        let app = build_app();
+        let response = app
+            .oneshot(json_request(json!({"text": "Hello world"})))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(!body.is_empty(), "expected non-empty WAV bytes");
+        // WAV files start with the RIFF header magic bytes
+        assert_eq!(&body[..4], b"RIFF", "expected a WAV RIFF header");
+    }
+
+    #[tokio::test]
+    async fn synthesize_empty_text_returns_400() {
+        let app = build_app();
+        let response = app
+            .oneshot(json_request(json!({"text": ""})))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn synthesize_missing_text_field_returns_400() {
+        let app = build_app();
+        let response = app.oneshot(json_request(json!({}))).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+}
