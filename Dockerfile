@@ -5,14 +5,14 @@ RUN apt-get update && apt-get install -y libclang-dev libssl-dev g++ cmake git w
 COPY . .
 RUN wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx
 RUN wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx.json
-RUN cargo install --path .
+RUN cargo build --release
 
 FROM debian:stable-slim
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y espeak-ng-data && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /usr/local/cargo/bin/omnitrackr-api /usr/local/bin/omnitrackr-api
+COPY --from=builder /usr/src/omnitrackr-api/target/release/omnitrackr-api /usr/local/bin/omnitrackr-api
 COPY --from=builder /usr/src/omnitrackr-api/en_US-hfc_female-medium.onnx /app/en_US-hfc_female-medium.onnx
 COPY --from=builder /usr/src/omnitrackr-api/en_US-hfc_female-medium.onnx.json /app/en_US-hfc_female-medium.onnx.json
 
