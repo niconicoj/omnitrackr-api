@@ -993,6 +993,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "piper-rs",
+ "riff-wave",
  "serde",
  "serde_json",
  "thiserror",

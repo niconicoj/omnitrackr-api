@@ -1,7 +1,12 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    io::Cursor,
+    path::Path,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use axum::{Router, extract::State, routing::post};
-use piper_rs::synth::PiperSpeechSynthesizer;
+use piper_rs::{CorePiperModel, synth::PiperSpeechSynthesizer};
+use riff_wave::WaveWriter;
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
@@ -12,6 +17,17 @@ use validator::Validate;
 
 mod error;
 mod validation;
+
+/// espeak-ng operates entirely on process-global C state with no internal locking in synchronous
+/// (retrieval) mode. Concurrent calls to `phonemize_text` therefore race on that global state and
+/// cause segfaults. This mutex serialises the phonemization step across all requests.
+/// ONNX inference (`speak_one_sentence`) is safe to run concurrently and is not covered by this
+/// lock.
+static ESPEAK_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn espeak_mutex() -> &'static Mutex<()> {
+    ESPEAK_MUTEX.get_or_init(|| Mutex::new(()))
+}
 
 #[tokio::main]
 async fn main() {
@@ -45,7 +61,6 @@ async fn main() {
 }
 
 struct AppState {
-    synth_permits: tokio::sync::Semaphore,
     synthesizer: PiperSpeechSynthesizer,
 }
 
@@ -54,10 +69,7 @@ impl AppState {
         let config_path = "en_US-hfc_female-medium.onnx.json";
         let piper_model = piper_rs::from_config_path(Path::new(config_path)).unwrap();
         let synthesizer = PiperSpeechSynthesizer::new(piper_model).unwrap();
-        Self {
-            synthesizer,
-            synth_permits: tokio::sync::Semaphore::new(1),
-        }
+        Self { synthesizer }
     }
 }
 
@@ -73,13 +85,41 @@ async fn synthesize(
     ValidatedJson(input): validation::ValidatedJson<SynthesizeRequest>,
 ) -> Vec<u8> {
     info!("Synthesizing text: {:?}", input.text);
+
+    // Phonemization is the only step that touches espeak-ng's global C state.
+    // Acquire the mutex, phonemize, then immediately release it so that ONNX
+    // inference (the slow part) runs concurrently across requests.
+    let phonemes = {
+        let _guard = espeak_mutex().lock().unwrap();
+        state.synthesizer.phonemize_text(&input.text).unwrap()
+    };
+
+    // ONNX inference is safe to run concurrently on the CPU execution provider.
+    let audio_chunks: Vec<_> = phonemes
+        .to_vec()
+        .into_iter()
+        .map(|sentence| state.synthesizer.speak_one_sentence(sentence).unwrap())
+        .collect();
+
+    let audio_info = state.synthesizer.audio_output_info().unwrap();
+    let i16_samples: Vec<i16> = audio_chunks
+        .into_iter()
+        .flat_map(|audio| audio.samples.to_i16_vec())
+        .collect();
+
     let mut bytes: Vec<u8> = Vec::new();
-    let permit = state.synth_permits.acquire().await.unwrap();
-    state
-        .synthesizer
-        .synthesize_to_buffer(std::io::Cursor::new(&mut bytes), input.text, None)
-        .unwrap();
-    drop(permit);
+    let mut writer = WaveWriter::new(
+        audio_info.num_channels as u16,
+        audio_info.sample_rate as u32,
+        (audio_info.sample_width * 8) as u16,
+        Cursor::new(&mut bytes),
+    )
+    .unwrap();
+    for sample in &i16_samples {
+        writer.write_sample_i16(*sample).unwrap();
+    }
+    writer.sync_header().unwrap();
+    drop(writer);
     bytes
 }
 
@@ -144,5 +184,49 @@ mod tests {
         let response = app.oneshot(json_request(json!({}))).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// Regression test: concurrent calls to synthesize must not segfault.
+    ///
+    /// espeak-ng operates on process-global C state with no internal locking.
+    /// Previously, concurrent requests would race on that state and segfault.
+    /// The fix serialises only the phonemization step via `ESPEAK_MUTEX`, leaving
+    /// ONNX inference (the slow part) free to run concurrently.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_synthesis_does_not_segfault() {
+        let state = Arc::new(AppState::init());
+        let concurrency = 8;
+
+        let handles: Vec<_> = (0..concurrency)
+            .map(|i| {
+                let state = Arc::clone(&state);
+                tokio::spawn(async move {
+                    let phonemes = {
+                        let _guard = espeak_mutex().lock().unwrap();
+                        state
+                            .synthesizer
+                            .phonemize_text(&format!("Concurrent synthesis request number {i}"))
+                            .unwrap()
+                    };
+                    let samples: Vec<i16> = phonemes
+                        .to_vec()
+                        .into_iter()
+                        .flat_map(|sentence| {
+                            state
+                                .synthesizer
+                                .speak_one_sentence(sentence)
+                                .unwrap()
+                                .samples
+                                .to_i16_vec()
+                        })
+                        .collect();
+                    assert!(!samples.is_empty());
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
     }
 }
