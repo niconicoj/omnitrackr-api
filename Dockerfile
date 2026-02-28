@@ -1,7 +1,7 @@
 FROM rust:1.85.0-slim AS builder
 
 WORKDIR /usr/src/omnitrackr-api
-RUN apt-get update && apt-get install -y libclang-dev g++ cmake git wget
+RUN apt-get update && apt-get install -y libclang-dev g++ cmake git wget pkg-config
 COPY . .
 RUN wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx
 RUN wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx.json
